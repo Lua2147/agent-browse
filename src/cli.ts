@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from '
 import { spawn, ChildProcess } from 'child_process';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { findLocalChrome, prepareChromeProfile, takeScreenshot } from './browser-utils.js';
+import { findLocalChrome, prepareChromeProfile, takeScreenshot, getAnthropicApiKey } from './browser-utils.js';
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
@@ -24,14 +24,23 @@ const PLUGIN_ROOT = resolve(__dirname, '..', '..');
 // Load .env from plugin root directory
 dotenv.config({ path: join(PLUGIN_ROOT, '.env'), quiet: true });
 
-// Check for API key
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error('Error: ANTHROPIC_API_KEY not found.');
-  console.error('\nTo set up your API key, choose one option:');
-  console.error('  1. (RECOMMENDED) Export in terminal: export ANTHROPIC_API_KEY="your-api-key"');
-  console.error('  2. Create a .env file: cp .env.example .env');
-  console.error('     Then edit .env and add your API key');
+const apiKeyResult = getAnthropicApiKey();
+if (!apiKeyResult) {
+  console.error('Error: No Anthropic API key found.');
+  console.error('\n📋 Option 1: Use your Claude subscription (RECOMMENDED)');
+  console.error('   If you have Claude Pro/Max, run: claude setup-token');
+  console.error('   This will store your subscription token in the system keychain.');
+  console.error('\n🔑 Option 2: Use an API key');
+  console.error('   Export in terminal: export ANTHROPIC_API_KEY="your-api-key"');
+  console.error('   Or create a .env file with: ANTHROPIC_API_KEY="your-api-key"');
   process.exit(1);
+}
+process.env.ANTHROPIC_API_KEY = apiKeyResult.apiKey;
+
+if (process.env.DEBUG) {
+  console.error(apiKeyResult.source === 'claude-code' 
+    ? '🔐 Using Claude Code subscription token from keychain'
+    : '🔑 Using ANTHROPIC_API_KEY from environment');
 }
 
 // Persistent browser state

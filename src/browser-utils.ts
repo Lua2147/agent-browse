@@ -1,7 +1,77 @@
 import { Page } from '@browserbasehq/stagehand';
-import { existsSync, cpSync, mkdirSync } from 'fs';
+import { existsSync, cpSync, mkdirSync, readFileSync } from 'fs';
 import { platform } from 'os';
 import { join } from 'path';
+import { execSync } from 'child_process';
+
+// Retrieve Claude Code API key from system keychain
+export function getClaudeCodeApiKey(): string | null {
+  try {
+    if (platform() === 'darwin') {
+      const result = execSync(
+        'security find-generic-password -s "Claude Code" -w 2>/dev/null',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim();
+      if (result && result.startsWith('sk-ant-')) {
+        return result;
+      }
+    } else if (platform() === 'win32') {
+      try {
+        const psCommand = `$cred = Get-StoredCredential -Target "Claude Code" -ErrorAction SilentlyContinue; if ($cred) { $cred.GetNetworkCredential().Password }`;
+        const result = execSync(`powershell -Command "${psCommand}"`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        }).trim();
+        if (result && result.startsWith('sk-ant-')) {
+          return result;
+        }
+      } catch {}
+    } else {
+      // Linux
+      const configPaths = [
+        join(process.env.HOME || '', '.claude', 'credentials'),
+        join(process.env.HOME || '', '.config', 'claude-code', 'credentials'),
+        join(process.env.XDG_CONFIG_HOME || join(process.env.HOME || '', '.config'), 'claude-code', 'credentials'),
+      ];
+      for (const configPath of configPaths) {
+        if (existsSync(configPath)) {
+          try {
+            const content = readFileSync(configPath, 'utf-8').trim();
+            if (content.startsWith('sk-ant-')) {
+              return content;
+            }
+            const parsed = JSON.parse(content);
+            if (parsed.apiKey && parsed.apiKey.startsWith('sk-ant-')) {
+              return parsed.apiKey;
+            }
+          } catch {}
+        }
+      }
+      try {
+        const result = execSync(
+          'secret-tool lookup service "Claude Code" 2>/dev/null',
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        ).trim();
+        if (result && result.startsWith('sk-ant-')) {
+          return result;
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
+// Get API key from env or Claude Code keychain
+export function getAnthropicApiKey(): { apiKey: string; source: 'env' | 'claude-code' } | null {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { apiKey: process.env.ANTHROPIC_API_KEY, source: 'env' };
+  }
+  const claudeCodeKey = getClaudeCodeApiKey();
+  if (claudeCodeKey) {
+    return { apiKey: claudeCodeKey, source: 'claude-code' };
+  }
+  return null;
+}
 
 /**
  * Finds the local Chrome installation path based on the operating system
