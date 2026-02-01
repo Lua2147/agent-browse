@@ -46,4 +46,7 @@ agent/downloads/*
 tmp/.cache/.chrome-pid
 
 # Chrome PID
-.chrome-pid 
+.chrome-pid
+
+# CDP port (runtime session state)
+.cdp-port

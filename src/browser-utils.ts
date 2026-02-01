@@ -1,8 +1,9 @@
 import { Stagehand } from '@browserbasehq/stagehand';
-import { existsSync, cpSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs';
 import { platform } from 'os';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { execSync } from 'child_process';
+import { PROFILE_EXCLUDED_FILES } from './security.js';
 
 // Retrieve Claude Code API key from system keychain
 export function getClaudeCodeApiKey(): string | null {
@@ -143,8 +144,37 @@ export function getChromeUserDataDir(): string | undefined {
 }
 
 /**
- * Prepares the Chrome profile by copying it to .chrome-profile directory (first run only)
- * This should be called before initializing Stagehand to avoid timeouts
+ * Copies a directory recursively while excluding sensitive files (passwords, autofill).
+ */
+function copyProfileFiltered(source: string, dest: string, excludedFiles: string[]) {
+  mkdirSync(dest, { recursive: true });
+
+  const entries = readdirSync(source);
+  for (const entry of entries) {
+    // Skip excluded sensitive files
+    if (excludedFiles.includes(entry)) {
+      continue;
+    }
+
+    const srcPath = join(source, entry);
+    const destPath = join(dest, entry);
+
+    try {
+      const stat = statSync(srcPath);
+      if (stat.isDirectory()) {
+        copyProfileFiltered(srcPath, destPath, excludedFiles);
+      } else {
+        cpSync(srcPath, destPath);
+      }
+    } catch {
+      // Skip files that can't be read (locked by Chrome, etc.)
+    }
+  }
+}
+
+/**
+ * Prepares the Chrome profile by copying it to .chrome-profile directory (first run only).
+ * SECURITY: Excludes saved passwords, autofill/credit card data from the copy.
  * @param pluginRoot The root directory of the plugin
  */
 export function prepareChromeProfile(pluginRoot: string) {
@@ -156,18 +186,17 @@ export function prepareChromeProfile(pluginRoot: string) {
     const dim = '\x1b[2m';
     const reset = '\x1b[0m';
 
-    // Show copying message
-    console.log(`${dim}Copying Chrome profile to .chrome-profile/ (this may take a minute)...${reset}`);
+    console.log(`${dim}Copying Chrome profile to .chrome-profile/ (excluding passwords & autofill)...${reset}`);
 
     mkdirSync(tempUserDataDir, { recursive: true });
 
-    // Copy the Default profile directory (contains cookies, local storage, etc.)
     const sourceDefaultProfile = join(sourceUserDataDir!, 'Default');
     const destDefaultProfile = join(tempUserDataDir, 'Default');
 
     if (existsSync(sourceDefaultProfile)) {
-      cpSync(sourceDefaultProfile, destDefaultProfile, { recursive: true });
-      console.log(`${dim}✓ Profile copied successfully${reset}\n`);
+      copyProfileFiltered(sourceDefaultProfile, destDefaultProfile, PROFILE_EXCLUDED_FILES);
+      console.log(`${dim}Excluded: ${PROFILE_EXCLUDED_FILES.join(', ')}${reset}`);
+      console.log(`${dim}Profile copied successfully (passwords & autofill stripped)${reset}\n`);
     } else {
       console.log(`${dim}No existing profile found, using fresh profile${reset}\n`);
     }
