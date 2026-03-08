@@ -1,5 +1,5 @@
 import { Stagehand } from '@browserbasehq/stagehand';
-import { existsSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { platform } from 'os';
 import { join, basename } from 'path';
 import { execSync } from 'child_process';
@@ -172,6 +172,20 @@ function copyProfileFiltered(source: string, dest: string, excludedFiles: string
   }
 }
 
+function clearTransientChromeArtifacts(profileDir: string) {
+  for (const entry of ['SingletonCookie', 'SingletonLock', 'SingletonSocket', 'DevToolsActivePort']) {
+    const entryPath = join(profileDir, entry);
+    if (!existsSync(entryPath)) {
+      continue;
+    }
+    try {
+      unlinkSync(entryPath);
+    } catch {
+      // Ignore unreadable or already-removed runtime artifacts.
+    }
+  }
+}
+
 /**
  * Prepares the Chrome profile by copying it to .chrome-profile directory (first run only).
  * SECURITY: Excludes saved passwords, autofill/credit card data from the copy.
@@ -201,6 +215,9 @@ export function prepareChromeProfile(pluginRoot: string) {
       console.log(`${dim}No existing profile found, using fresh profile${reset}\n`);
     }
   }
+
+  // Copied profiles often carry stale Chrome singleton files from the last machine/session.
+  clearTransientChromeArtifacts(tempUserDataDir);
 }
 
  // Use CDP to take screenshot directly
